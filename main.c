@@ -1,12 +1,14 @@
 #include <stdio.h>
 #include <alsa/asoundlib.h>
+#include <pthread.h>
+#include <unistd.h>
 
-#define SAMPLE_RATE 44100
+#define SAMPLE_RATE 48000
 #define AMPLITUDE 30
+#define N_VOICES 3
 
 static snd_pcm_t *pcm = NULL;
-static unsigned char buffer[SAMPLE_RATE * 5];
-static unsigned char *ptr = buffer;
+
 
 typedef struct voice_s{
     unsigned char val, status;
@@ -15,36 +17,76 @@ typedef struct voice_s{
 }voice;
 
 typedef struct channel_s{
-    voice voices[3];
-    int freqs[3];
+    voice voices[N_VOICES];
 }channel;
 
-void toggle_voice(voice *voice, int status, int freq, float duty_cycle){
-    voice->val = 0;
-    voice->counter = 0;
-    voice->status = status;
-    voice->freq = freq;
-    voice->duty_cycle = duty_cycle;
-    voice->period = SAMPLE_RATE / freq;
-    voice->off = (int)(voice->period * duty_cycle);
-}
+channel channel_ptr, chan;
 
-unsigned char *square_wave(unsigned char *buffer, int freq, int duration){
-    int samples = (int)(SAMPLE_RATE * duration / 1000);
-    unsigned char val = 0;
-    int period = SAMPLE_RATE / 880;
-
-    for (int i = 0; i < samples; i++){
-        buffer[i] = val * AMPLITUDE;
-        if (i % period == period - 1){
-            val = !val;
+void toggle_voice(channel *channel, int status, int freq, float duty_cycle){
+    voice *voice_ptr;
+    for (int i = 0; i < N_VOICES; i++){
+        voice_ptr = &channel->voices[i];
+        if(status == 0 && voice_ptr->freq == freq){
+            voice_ptr->status = status;
+            return;
         }
-        printf("%d %d\n", buffer[i], i);
+        else if(status == 1 && voice_ptr->status == 0){
+            voice_ptr->val = 0;
+            voice_ptr->counter = 0;
+            voice_ptr->status = status;
+            voice_ptr->freq = freq;
+            voice_ptr->duty_cycle = duty_cycle;
+            voice_ptr->period = SAMPLE_RATE / freq;
+            voice_ptr->off = (int)(voice_ptr->period * duty_cycle);
+            return;
+        }
     }
 }
 
-void pulse_wave(int freq, float duty_cycle){
+void *play_channel_thread(void *arg){
+    channel *channel_ptr = (channel *)arg;
+    unsigned char vals[N_VOICES] = {0};
+    while(1){
+        unsigned char val = 0;
+        for(int i = 0; i < N_VOICES; i++){
+            if(channel_ptr->voices[i].status){
+                if(channel_ptr->voices[i].counter++ < channel_ptr->voices[i].off){
+                    vals[i] = 1;
+                }
+                else if(channel_ptr->voices[i].counter < channel_ptr->voices[i].period){
+                    vals[i] = 0;
+                }
+                else{
+                    channel_ptr->voices[i].counter = 0;
+                }
+            }
+            val = val | vals[i];
+        }
+        // printf("%d\n", val);
+        val = val * AMPLITUDE;
+        snd_pcm_writei(pcm, &val, 1);
+    }
+    return NULL;
+}
 
+
+struct args{
+    FILE *file;
+    channel *channel_ptr;
+}args1, args2;
+
+void *play_file(void *arg){
+    struct args *args = (struct args*)arg;
+    FILE *file = args->file;
+    printf("%d\n", file);
+    channel *chn = args->channel_ptr;
+
+    while(1){
+        int status, freq, delay;
+        fscanf(file, "%d %d %d", &status, &freq, &delay);
+        usleep(delay);
+        toggle_voice(chn, status, freq, 0.1);
+    }
 }
 
 int main(void){
@@ -66,34 +108,42 @@ int main(void){
         exit(EXIT_FAILURE);
     }
 
-    channel channel;
+    channel_ptr.voices[0].status = 0;
+    channel_ptr.voices[1].status = 0;
+    channel_ptr.voices[2].status = 0;
 
-    toggle_voice(&channel.voices[1], 1, 261, 0.07);
-    toggle_voice(&channel.voices[0], 1, 329, 0.09);
-    toggle_voice(&channel.voices[2], 1, 392, 0.11);
-    printf("%d %d\n", channel.voices[0].period, channel.voices[0].off);
-    unsigned char vals[3] = {0, 0, 0};
-    while(1){
-        unsigned char val = 0;
-        for(int i = 0; i < 3; i++){
-            if(channel.voices[i].counter++ < channel.voices[i].off){
-                vals[i] = 1;
-            }
-            else if(channel.voices[i].counter < channel.voices[i].period){
-                vals[i] = 0;
-            }
-            else{
-                channel.voices[i].counter = 0;
-            }
-            val = val | vals[i];
-        }
-        printf("%d\n", val);
-        val = val * AMPLITUDE;
-        snd_pcm_writei(pcm, &val, 1);
+    chan.voices[0].status = 0;
+    chan.voices[1].status = 0;
+    chan.voices[2].status = 0;
+
+    pthread_t thread;
+
+    if (pthread_create(&thread, NULL, play_channel_thread, &channel_ptr) != 0) {
+        fprintf(stderr, "Error creating thread\n");
+        exit(EXIT_FAILURE);
     }
 
-    unsigned char buffer[(int)(SAMPLE_RATE * 5)];
-    square_wave(buffer, 440, 5000);
-    printf("%d", sizeof(buffer));
-    snd_pcm_writei(pcm, buffer, sizeof(buffer));
+    FILE *f1, *f2;
+    f1 = fopen("./examples/badapple_nomico5.txt", "r");
+    f2 = fopen("./examples/badapple_nomico3.txt", "r");
+
+    args1.file = f1;
+    args1.channel_ptr = &channel_ptr;
+    args2.file = f2;
+    args2.channel_ptr = &chan;
+    pthread_t threads[2];
+
+    pthread_create(&threads[0], NULL, play_file, &args1);
+    pthread_create(&threads[1], NULL, play_file, &args2);
+    
+
+    // toggle_voice(&channel_ptr, 1, 261, 0.1);
+    // sleep(1);
+    // toggle_voice(&channel_ptr, 1, 329, 0.12);
+    // sleep(1);
+    // toggle_voice(&channel_ptr, 1, 392, 0.14);
+
+    pthread_join(thread, NULL); // Wait for the play_channel_thread to finish (which it never will)
+    return 0;
+
 }
