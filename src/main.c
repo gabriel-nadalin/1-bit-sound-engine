@@ -2,10 +2,9 @@
 #include <alsa/asoundlib.h>
 #include <pthread.h>
 #include <unistd.h>
+#include "../include/params.h"
+#include "../include/pcm.h"
 
-#define SAMPLE_RATE 48000
-#define AMPLITUDE 30
-#define N_VOICES 3
 
 static snd_pcm_t *pcm = NULL;
 
@@ -63,6 +62,7 @@ void *play_channel_thread(void *arg){
             val = val | vals[i];
         }
         // printf("%d\n", val);
+        // printf("\b%d", val);
         val = val * AMPLITUDE;
         snd_pcm_writei(pcm, &val, 1);
     }
@@ -78,35 +78,21 @@ struct args{
 void *play_file(void *arg){
     struct args *args = (struct args*)arg;
     FILE *file = args->file;
-    printf("%d\n", file);
     channel *chn = args->channel_ptr;
+    int count = 0;
 
     while(1){
         int status, freq, delay;
         fscanf(file, "%d %d %d", &status, &freq, &delay);
         usleep(delay);
-        toggle_voice(chn, status, freq, 0.1);
+        if(status){ printf("%d %d %d %d\n", count, status, freq, delay);}
+        toggle_voice(chn, status, freq, 0.15);
+        count++;
     }
 }
 
 int main(void){
-    int err;
-
-    if ((err = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
-        printf("Playback open error: %s\n", snd_strerror(err));
-        exit(EXIT_FAILURE);
-    }
-
-    if ((err = snd_pcm_set_params(pcm,
-                      SND_PCM_FORMAT_U8,
-                      SND_PCM_ACCESS_RW_INTERLEAVED,
-                      1,
-                      SAMPLE_RATE,
-                      1,
-                      20000)) < 0) {
-        printf("Playback open error: %s\n", snd_strerror(err));
-        exit(EXIT_FAILURE);
-    }
+    pcm = pcm_start();
 
     channel_ptr.voices[0].status = 0;
     channel_ptr.voices[1].status = 0;
@@ -124,8 +110,8 @@ int main(void){
     }
 
     FILE *f1, *f2;
-    f1 = fopen("./examples/badapple_nomico5.txt", "r");
-    f2 = fopen("./examples/badapple_nomico3.txt", "r");
+    f1 = fopen("../examples/badapple_nomico5.txt", "r");
+    f2 = fopen("../examples/badapple_nomico3.txt", "r");
 
     args1.file = f1;
     args1.channel_ptr = &channel_ptr;
@@ -133,8 +119,8 @@ int main(void){
     args2.channel_ptr = &chan;
     pthread_t threads[2];
 
-    pthread_create(&threads[0], NULL, play_file, &args1);
-    pthread_create(&threads[1], NULL, play_file, &args2);
+    play_file(&args1);
+    // pthread_create(&threads[1], NULL, play_file, &args2);
     
 
     // toggle_voice(&channel_ptr, 1, 261, 0.1);
