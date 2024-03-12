@@ -1,0 +1,4 @@
+#!/bin/bash
+
+gcc src/main.c src/audio.c -o main -lasound
+main

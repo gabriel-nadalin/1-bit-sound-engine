@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include "../include/params.h"
-#include "../include/pcm.h"
+#include "../include/audio.h"
 
 
 static snd_pcm_t *pcm = NULL;
@@ -92,44 +92,51 @@ void *play_file(void *arg){
 }
 
 int main(void){
-    pcm = pcm_start();
+    pcm_interface interface;
+    interface.pcm = pcm_start();
+    interface.channels[0] = channel_start(62);
 
-    channel_ptr.voices[0].status = 0;
-    channel_ptr.voices[1].status = 0;
-    channel_ptr.voices[2].status = 0;
+    // channel_ptr.voices[0].status = 0;
+    // channel_ptr.voices[1].status = 0;
+    // channel_ptr.voices[2].status = 0;
 
-    chan.voices[0].status = 0;
-    chan.voices[1].status = 0;
-    chan.voices[2].status = 0;
+    // chan.voices[0].status = 0;
+    // chan.voices[1].status = 0;
+    // chan.voices[2].status = 0;
 
     pthread_t thread;
 
-    if (pthread_create(&thread, NULL, play_channel_thread, &channel_ptr) != 0) {
+    if (pthread_create(&thread, NULL, hardware_out, &interface) != 0) {
         fprintf(stderr, "Error creating thread\n");
         exit(EXIT_FAILURE);
     }
+    toggle_PPM_voice(interface.channels[0], 1, 440);
 
-    FILE *f1, *f2;
-    f1 = fopen("../examples/badapple_nomico5.txt", "r");
-    f2 = fopen("../examples/badapple_nomico3.txt", "r");
+    // FILE *f1, *f2;
+    // f1 = fopen("../examples/badapple_nomico5.txt", "r");
+    // f2 = fopen("../examples/badapple_nomico3.txt", "r");
 
-    args1.file = f1;
-    args1.channel_ptr = &channel_ptr;
-    args2.file = f2;
-    args2.channel_ptr = &chan;
-    pthread_t threads[2];
+    // args1.file = f1;
+    // args1.channel_ptr = &channel_ptr;
+    // args2.file = f2;
+    // args2.channel_ptr = &chan;
+    // pthread_t threads[2];
 
-    play_file(&args1);
-    // pthread_create(&threads[1], NULL, play_file, &args2);
+    // play_file(&args1);
+    // // pthread_create(&threads[1], NULL, play_file, &args2);
     
 
-    // toggle_voice(&channel_ptr, 1, 261, 0.1);
-    // sleep(1);
-    // toggle_voice(&channel_ptr, 1, 329, 0.12);
-    // sleep(1);
-    // toggle_voice(&channel_ptr, 1, 392, 0.14);
+    // // toggle_voice(&channel_ptr, 1, 261, 0.1);
+    // // sleep(1);
+    // // toggle_voice(&channel_ptr, 1, 329, 0.12);
+    // // sleep(1);
+    // // toggle_voice(&channel_ptr, 1, 392, 0.14);
 
     pthread_join(thread, NULL); // Wait for the play_channel_thread to finish (which it never will)
-    return 0;
+    // return 0;
 
+
+    // PIM_channel *channel = channel_start(100);
+    // printf("aqui");
+    // printf("%d %d %d", channel->out, channel->duty_cycle, channel->freqs[0]);
 }
